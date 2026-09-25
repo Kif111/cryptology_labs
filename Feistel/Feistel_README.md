@@ -237,32 +237,24 @@ S-box: в обоих проектах — PRESENT, 4 бита.
 - V. Nachef, J. Patarin, E. Volte. *Feistel Ciphers: Security Proofs and Cryptanalysis*.
   Springer, 2017.
   DOI: 10.1007/978-3-319-49530-9
-
+  
 ### S-Box
 Взят из шифра **PRESENT**:
-- A. Bogdanov et al. «PRESENT: An Ultra-Lightweight Block Cipher».
-  CHES 2007, LNCS 4727, pp. 450–466.
-  DOI: 10.1007/978-3-540-74735-2_31
+-"PRESENT: An Ultra-Lightweight Block Cipher" - A. Bogdanov, L. R. Knudsen, G. Leander, C. Paar, A. Poschmann, M. J. B. Robshaw, Y. Seurin & C. Vikkelsoe 
+link: https://link.springer.com/chapter/10.1007/978-3-540-74735-2_31
 
 ### Режим PCBC (Propagating Cipher Block Chaining)
-- J. T. Kohl. «The Use of Encryption in Kerberos for Network Authentication».
-  In *Advances in Cryptology – CRYPTO '89*, LNCS vol. 435,
-  Springer, pp. 35–43, 1990.
-  DOI: 10.1007/0-387-34805-0_5
-- A. J. Menezes, P. C. van Oorschot, S. A. Vanstone.
-  *Handbook of Applied Cryptography*. CRC Press, 1997.
-  Глава 7, раздел 7.2.2 — режимы сцепления блоков (CBC, PCBC).
-  Ссылка: https://cacr.uwaterloo.ca/hac/
+- Chris J. Mitchell  «Cryptanalysis of Two Variants of PCBC Mode When Used for Message Integrity».
+  Ссылка: https://link.springer.com/chapter/10.1007/11506157_47
 
 ### Режим ECB (Electronic Codebook)
-- M. Dworkin. «Recommendation for Block Cipher Modes of Operation:
-  Methods and Techniques». NIST Special Publication 800-38A, 2001.
-  Ссылка: https://csrc.nist.gov/pubs/sp/800/38/a/final
-  ECB описан в разделе 6.1.
-- A. J. Menezes, P. C. van Oorschot, S. A. Vanstone.
-  *Handbook of Applied Cryptography*. CRC Press, 1997.
-  Глава 7 — общая теория режимов работы блочных шифров.
-  Ссылка: https://cacr.uwaterloo.ca/hac/
+- "Evaluation of Some Blockcipher
+Modes of Operation" - Phillip Rogaway
+University of California, Davis
+Dept. of Computer Science
+Davis, California, USA
+3 глава, 24 стр.
+link: https://www.cs.ucdavis.edu/~rogaway/papers/modes-cryptrec.pdf
 
 ### Реальный пример сети Фейстеля
 - **ГОСТ 28147-89**. «Системы обработки информации. Защита криптографическая.
