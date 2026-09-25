@@ -1,7 +1,8 @@
 import random
 
 # ============================================================
-# S-Box из PRESENT
+# S-BOX из шифра PRESENT
+# Источник: Bogdanov et al., "PRESENT: An Ultra-Lightweight Block Cipher" (2007)
 # ============================================================
 S_BOX = {
     "0000": "1100", "0001": "0101", "0010": "0110", "0011": "1011",
@@ -11,11 +12,12 @@ S_BOX = {
 }
 
 BLOCK_SIZE = 64
+HALF = 32
 NUM_ROUNDS = 16
 
 
 # ============================================================
-# Вспомогательные операции
+# Базовые операции
 # ============================================================
 def xor_bits(a, b):
     return "".join("0" if a[i] == b[i] else "1" for i in range(len(a)))
@@ -26,131 +28,105 @@ def rotl(bits, n):
     return bits[n:] + bits[:n]
 
 
-def sbox_16(x):
-    return "".join(S_BOX[x[i:i+4]] for i in range(0, 16, 4))
-
-
-def F(x, k):
-    """Раундовая функция: F(x, k) = S(x XOR k). Необратима."""
-    return sbox_16(xor_bits(x, k))
-
-
 # ============================================================
-# Key schedule: 16 подключей по 16 бит из ключа >= 128 бит
-# Гибко к длине: остаток ключа паддится до 16 и XOR-ится по кругу.
+# Key schedule: 16 подключей по 32 бита из ключа >= 128 бит
 # ============================================================
-def key_schedule(master_key):
+def generate_subkeys(master_key, num_rounds=NUM_ROUNDS):
     if len(master_key) < 128:
-        raise ValueError("Ключ должен быть не менее 128 бит.")
+        raise ValueError("Мастер-ключ должен быть не менее 128 бит.")
 
-    K = [master_key[i:i+16] for i in range(0, 128, 16)]
+    L = master_key[:64]
+    R = master_key[64:128]
 
     rest = master_key[128:]
     if rest:
-        # Дополняем остаток нулями до кратности 16
-        if len(rest) % 16 != 0:
-            rest = rest.ljust((len(rest) // 16 + 1) * 16, "0")
-        for i in range(0, len(rest), 16):
-            idx = (i // 16) % 8
-            K[idx] = xor_bits(K[idx], rest[i:i+16])
+        if len(rest) % 64 != 0:
+            rest = rest.ljust((len(rest) // 64 + 1) * 64, "0")
+        for i in range(0, len(rest), 64):
+            chunk = rest[i:i + 64]
+            if (i // 64) % 2 == 0:
+                L = xor_bits(L, chunk)
+            else:
+                R = xor_bits(R, chunk)
 
     subkeys = []
-    for r in range(1, NUM_ROUNDS + 1):
-        subkey = xor_bits(K[r % 8], format(r, "016b"))
-        subkeys.append(subkey)
-        new_K = []
-        for i in range(8):
-            new_K.append(xor_bits(K[i], rotl(K[(i+1) % 8], r + 1)))
-        K = new_K
+    for r in range(1, num_rounds + 1):
+        L = xor_bits(L, rotl(R, r))
+        R = xor_bits(R, rotl(L, r))
+        combined = xor_bits(L, R)
+        subkey32 = combined[:32]
+        round_counter = format(r % (2**32), "032b")
+        subkey32 = xor_bits(subkey32, round_counter)
+        subkeys.append(subkey32)
     return subkeys
 
 
 # ============================================================
-# Сеть Фейстеля (Type-2 GFN, 4 ветви)
+# Функция раунда F
+# ============================================================
+def f_function(right_half, round_key):
+    x = xor_bits(right_half, round_key)
+    x = "".join(S_BOX[x[i:i + 4]] for i in range(0, len(x), 4))
+    x = x[-3:] + x[:-3]
+    return x
+
+
+# ============================================================
+# Раунды Фейстеля
 # ============================================================
 def feistel_encrypt_block(block, subkeys, verbose=False):
-    A, B, C, D = block[0:16], block[16:32], block[32:48], block[48:64]
-
-    if verbose:
-        print("\n--- РАУНД 1 (подробно, шифрование) ---")
-        print(f"A={A} B={B} C={C} D={D}")
-        print("Подключ K1:", subkeys[0])
-
+    L = block[:HALF]
+    R = block[HALF:]
     for r, k in enumerate(subkeys):
-        t = xor_bits(A, F(B, k))
         if verbose and r == 0:
-            print(f"F(B,K1) = {F(B, k)}")
-            print(f"new_D = A XOR F(B,K1) = {t}")
-        A, B, C, D = B, C, D, t
+            print("\n--- РАУНД 1 (подробно) ---")
+            print("L:", L)
+            print("R:", R)
+            print("Подключ:", k)
+        f_out = f_function(R, k)
+        newL = R
+        newR = xor_bits(L, f_out)
+        L, R = newL, newR
         if verbose and r == 0:
-            print(f"После раунда: A={A} B={B} C={C} D={D}")
-
-    return A + B + C + D
+            print("F(R,K):", f_out)
+            print("После раунда L:", L)
+            print("После раунда R:", R)
+    return R + L   # финальный swap
 
 
 def feistel_decrypt_block(block, subkeys, verbose=False):
-    A, B, C, D = block[0:16], block[16:32], block[32:48], block[48:64]
-
-    if verbose:
-        print("\n--- РАУНД 1 (подробно, расшифрование) ---")
-        print(f"A={A} B={B} C={C} D={D}")
-        print("Подключ:", subkeys[-1])
-
+    L = block[:HALF]
+    R = block[HALF:]
     for r, k in enumerate(reversed(subkeys)):
-        t = xor_bits(D, F(A, k))
         if verbose and r == 0:
-            print(f"F(A,K) = {F(A, k)}")
-            print(f"new_A = D XOR F(A,K) = {t}")
-        A, B, C, D = t, A, B, C
+            print("\n--- РАУНД 1 расшифрования (подробно) ---")
+            print("L:", L)
+            print("R:", R)
+            print("Подключ:", k)
+        f_out = f_function(R, k)
+        newL = R
+        newR = xor_bits(L, f_out)
+        L, R = newL, newR
         if verbose and r == 0:
-            print(f"После раунда: A={A} B={B} C={C} D={D}")
-
-    return A + B + C + D
+            print("F(R,K):", f_out)
+            print("После раунда L:", L)
+            print("После раунда R:", R)
+    return R + L   # тот же финальный swap
 
 
 # ============================================================
-# Разбиение на блоки
+# Утилиты
 # ============================================================
 def split_blocks(bits):
     blocks = []
     for i in range(0, len(bits), BLOCK_SIZE):
-        b = bits[i:i+BLOCK_SIZE]
+        b = bits[i:i + BLOCK_SIZE]
         if len(b) < BLOCK_SIZE:
             b = b.ljust(BLOCK_SIZE, "0")
         blocks.append(b)
     return blocks
 
 
-# ============================================================
-# Режим CFB-64
-# ============================================================
-def cfb_encrypt(message, subkeys, iv):
-    blocks = split_blocks(message)
-    prev = iv
-    ciphertext = ""
-    for i, p in enumerate(blocks):
-        keystream = feistel_encrypt_block(prev, subkeys, verbose=(i == 0))
-        c = xor_bits(p, keystream)
-        ciphertext += c
-        prev = c
-    return ciphertext
-
-
-def cfb_decrypt(ciphertext, subkeys, iv):
-    blocks = split_blocks(ciphertext)
-    prev = iv
-    plaintext = ""
-    for i, c in enumerate(blocks):
-        keystream = feistel_encrypt_block(prev, subkeys, verbose=(i == 0))
-        p = xor_bits(c, keystream)
-        plaintext += p
-        prev = c
-    return plaintext
-
-
-# ============================================================
-# Hex <-> Bits
-# ============================================================
 def hex_to_bits(h):
     h = h.replace(" ", "").replace("\n", "").lower()
     if not h or any(c not in "0123456789abcdef" for c in h):
@@ -161,7 +137,7 @@ def hex_to_bits(h):
 def bits_to_hex(b):
     if len(b) % 4 != 0:
         b = b.ljust((len(b) // 4 + 1) * 4, "0")
-    return "".join(format(int(b[i:i+4], 2), "x") for i in range(0, len(b), 4))
+    return "".join(format(int(b[i:i + 4], 2), "x") for i in range(0, len(b), 4))
 
 
 def random_iv():
@@ -169,27 +145,86 @@ def random_iv():
 
 
 # ============================================================
-# Ввод BIN
+# Режим ECB
 # ============================================================
-def input_bin_bits(prompt, min_bits):
-    while True:
-        v = input(prompt).replace(" ", "").replace("\n", "")
-        if not v:
-            print("Ошибка: пусто.")
-            continue
-        if any(c not in "01" for c in v):
-            print("Ошибка: только 0 и 1.")
-            continue
-        if len(v) < min_bits:
-            print(f"Ошибка: нужно ≥ {min_bits} бит (сейчас {len(v)}).")
-            continue
-        return v
+def ecb_encrypt(message, subkeys):
+    out = ""
+    for i, p in enumerate(split_blocks(message)):
+        out += feistel_encrypt_block(p, subkeys, verbose=(i == 0))
+    return out
+
+
+def ecb_decrypt(ciphertext, subkeys):
+    out = ""
+    for i, c in enumerate(split_blocks(ciphertext)):
+        out += feistel_decrypt_block(c, subkeys, verbose=(i == 0))
+    return out
 
 
 # ============================================================
-# Ввод HEX
+# Режим PCBC
 # ============================================================
-def input_hex_bits(prompt, min_hex_chars):
+def pcbc_encrypt(message, subkeys, iv):
+    blocks = split_blocks(message)
+    prev_c = iv
+    prev_p = "0" * BLOCK_SIZE
+    out = ""
+    for i, p in enumerate(blocks):
+        if i == 0:
+            x = xor_bits(p, prev_c)
+        else:
+            x = xor_bits(xor_bits(p, prev_p), prev_c)
+        c = feistel_encrypt_block(x, subkeys, verbose=(i == 0))
+        out += c
+        prev_c = c
+        prev_p = p
+    return out
+
+
+def pcbc_decrypt(ciphertext, subkeys, iv):
+    blocks = split_blocks(ciphertext)
+    prev_c = iv
+    prev_p = "0" * BLOCK_SIZE
+    out = ""
+    for i, c in enumerate(blocks):
+        x = feistel_decrypt_block(c, subkeys, verbose=(i == 0))
+        if i == 0:
+            p = xor_bits(x, prev_c)
+        else:
+            p = xor_bits(xor_bits(x, prev_p), prev_c)
+        out += p
+        prev_c = c
+        prev_p = p
+    return out
+
+
+# ============================================================
+# Универсальные обёртки
+# ============================================================
+def encrypt_message(message, subkeys, mode="ECB", iv=None):
+    if mode == "ECB":
+        return ecb_encrypt(message, subkeys), None
+    if mode == "PCBC":
+        if iv is None:
+            iv = random_iv()
+        return pcbc_encrypt(message, subkeys, iv), iv
+    raise ValueError("Неизвестный режим: " + mode)
+
+
+def decrypt_message(ciphertext, subkeys, mode="ECB", iv=None):
+    if mode == "ECB":
+        return ecb_decrypt(ciphertext, subkeys)
+    if mode == "PCBC":
+        if iv is None:
+            raise ValueError("Для PCBC нужен IV.")
+        return pcbc_decrypt(ciphertext, subkeys, iv)
+    raise ValueError("Неизвестный режим: " + mode)
+
+
+# ============================================================
+# Ввод и меню
+# ============================================================
+def input_hex_bits(prompt, min_bits, must_be_multiple_of=None):
     while True:
         v = input(prompt).replace(" ", "").replace("\n", "")
         if not v:
@@ -200,128 +235,74 @@ def input_hex_bits(prompt, min_hex_chars):
         except ValueError as e:
             print(f"Ошибка: {e}")
             continue
-        if len(v) < min_hex_chars:
-            print(f"Ошибка: нужно ≥ {min_hex_chars} hex-символов "
-                  f"(сейчас {len(v)}, это {len(bits)} бит).")
+        if len(bits) < min_bits:
+            print(f"Ошибка: нужно ≥ {min_bits} бит (сейчас {len(bits)}).")
+            continue
+        if must_be_multiple_of and len(bits) % must_be_multiple_of != 0:
+            print(f"Ошибка: длина должна быть кратна {must_be_multiple_of} битам.")
             continue
         return bits
 
 
-def input_iv_hex():
+def choose_mode():
     while True:
-        v = input("IV (hex, ровно 16 символов = 64 бита):\n").strip()
-        try:
-            iv = hex_to_bits(v)
-        except ValueError as e:
-            print(f"Ошибка IV: {e}")
-            continue
-        if len(iv) != BLOCK_SIZE:
-            print(f"Ошибка: IV должен быть ровно {BLOCK_SIZE} бит "
-                  f"({BLOCK_SIZE // 4} hex-символов).")
-            continue
-        return iv
+        print("\nВыбор режима:")
+        print("1. ECB")
+        print("2. PCBC")
+        m = input("Режим (1/2): ").strip()
+        if m == "1":
+            return "ECB"
+        if m == "2":
+            return "PCBC"
+        print("Ошибка: введите 1 или 2.")
 
 
-def input_iv_bin():
-    while True:
-        v = input("IV (bin, ровно 64 символа):\n").replace(" ", "").replace("\n", "")
-        if any(c not in "01" for c in v) or len(v) != BLOCK_SIZE:
-            print(f"Ошибка: IV должен быть ровно {BLOCK_SIZE} бит из 0 и 1.")
-            continue
-        return v
-
-
-# ============================================================
-# Меню
-# ============================================================
 def main():
-    use_hex = True
-
     while True:
-        fmt = "HEX" if use_hex else "BIN"
         print("\n" + "=" * 60)
-        print("  Сеть Фейстеля (Type-2 GFN, 4 ветви) + CFB-64")
-        print(f"  Формат ввода: {fmt}")
+        print("     Фейстель + PRESENT S-Box")
         print("=" * 60)
         print("1. Зашифровать")
         print("2. Расшифровать")
-        print("3. Переключить формат (HEX/BIN)")
-        print("4. Выйти")
-        choice = input("Выбор: ")
+        print("3. Выйти")
+        choice = input("Выбор: ").strip()
 
         if choice == "1":
-            if use_hex:
-                msg = input_hex_bits(
-                    "Сообщение (hex, ≥ 64 символа = 256 бит):\n", 64
-                )
-                key = input_hex_bits(
-                    "Ключ (hex, ≥ 32 символа = 128 бит, любой длины):\n", 32
-                )
-            else:
-                msg = input_bin_bits(
-                    "Сообщение (bin, ≥ 256 бит):\n", 256
-                )
-                key = input_bin_bits(
-                    "Ключ (bin, ≥ 128 бит, любой длины):\n", 128
-                )
-
-            subkeys = key_schedule(key)
-            iv = random_iv()
-
-            ct = cfb_encrypt(msg, subkeys, iv)
-
+            mode = choose_mode()
+            msg = input_hex_bits("Сообщение (hex, ≥ 64 символа = 256 бит):\n", 256)
+            key = input_hex_bits("Ключ (hex, ≥ 32 символа = 128 бит, кратно 16):\n", 128, 64)
+            subkeys = generate_subkeys(key)
+            ct, iv = encrypt_message(msg, subkeys, mode=mode)
+            print(f"\nРежим: {mode}")
+            if iv:
+                print("IV (hex):", bits_to_hex(iv))
+            print("ШИФРОТЕКСТ HEX:", bits_to_hex(ct))
+            print("ШИФРОТЕКСТ BIN:", ct)
             n_blocks = len(split_blocks(msg))
-            print("\n" + "=" * 60)
-            print("ШИФРОТЕКСТ")
-            print("=" * 60)
-            if use_hex:
-                print("HEX:", bits_to_hex(ct))
-                print("IV  (hex):", bits_to_hex(iv))
-            else:
-                print("BIN:", ct)
-                print("IV  (bin):", iv)
-            print(f"\nБлоков: {n_blocks}, раундов на блок: {NUM_ROUNDS}, "
-                  f"всего раундов: {n_blocks * NUM_ROUNDS}")
-            print(f"Длина сообщения: {len(msg)} бит, "
-                  f"шифротекста: {len(ct)} бит")
-            print("=" * 60)
+            print(f"Блоков: {n_blocks}, раундов на блок: {NUM_ROUNDS}, всего: {n_blocks * NUM_ROUNDS}")
 
         elif choice == "2":
-            if use_hex:
-                ct = input_hex_bits(
-                    "Шифротекст (hex, ≥ 64 символа):\n", 64
-                )
-                key = input_hex_bits(
-                    "Ключ (hex, ≥ 32 символа):\n", 32
-                )
-                iv = input_iv_hex()
-            else:
-                ct = input_bin_bits(
-                    "Шифротекст (bin, ≥ 256 бит):\n", 256
-                )
-                key = input_bin_bits(
-                    "Ключ (bin, ≥ 128 бит):\n", 128
-                )
-                iv = input_iv_bin()
-
-            subkeys = key_schedule(key)
-            pt = cfb_decrypt(ct, subkeys, iv)
-
-            print("\n" + "=" * 60)
-            print("РАСШИФРОВАННОЕ СООБЩЕНИЕ")
-            print("=" * 60)
-            if use_hex:
-                print("HEX:", bits_to_hex(pt))
-            else:
-                print("BIN:", pt)
-            print(f"Длина: {len(pt)} бит")
-            print("=" * 60)
+            mode = choose_mode()
+            ct = input_hex_bits("Шифротекст (hex):\n", 256)
+            key = input_hex_bits("Ключ (hex, ≥ 32 символа, кратно 16):\n", 128, 64)
+            subkeys = generate_subkeys(key)
+            iv = None
+            if mode == "PCBC":
+                iv_hex = input("IV (hex, 16 символов):\n").strip()
+                try:
+                    iv = hex_to_bits(iv_hex)
+                except ValueError as e:
+                    print(f"Ошибка IV: {e}")
+                    continue
+                if len(iv) != BLOCK_SIZE:
+                    print("Ошибка: IV должен быть 64 бита (16 hex).")
+                    continue
+            pt = decrypt_message(ct, subkeys, mode=mode, iv=iv)
+            print(f"\nРежим: {mode}")
+            print("РАСШИФРОВАНО HEX:", bits_to_hex(pt))
+            print("РАСШИФРОВАНО BIN:", pt)
 
         elif choice == "3":
-            use_hex = not use_hex
-            print(f"\nФормат переключён на {'HEX' if use_hex else 'BIN'}.")
-
-        elif choice == "4":
             print("Выход.")
             break
 

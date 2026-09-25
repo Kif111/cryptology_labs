@@ -192,9 +192,29 @@ BIN и HEX. Его нужно сохранить, чтобы потом расш
 Ключ (BIN, 128 бит):
 10011100011010110100111000110101100111000110101101001110001101011001001111000110010110011100011001011001110001100101100111000110
 
-Источники:
-1)Bogdanov, A., Knudsen, L.R., Leander, G., Paar, C., Poschmann, A., Robshaw, M.J.B., Seurin, Y., Vikkelsoe, C.: PRESENT: An Ultra-Lightweight Block Cipher. In: Paillier, P., Verbauwhede, I. (eds.) CHES 2007, LNCS, vol. 4727, pp. 450–466. Springer (2007). DOI: 10.1007/978-3-540-74735-2_31 
-2)PCBC (Propagating CBC)
-Описание режима и его свойства (распространение ошибки на все последующие блоки) приведены в исследовательской литературе по надёжности криптографических систем . Отдельного «официального» стандарта у PCBC нет — он известен как учебный/
-3)Паддинг ISO 7816-4
-ISO/IEC 7816-4: Identification cards — Integrated circuit cards — Part 4: Organization, security and commands for interchange. Международный стандарт для смарт-карт, определяющий в том числе механизмы паддинга
+## Источники
+
+### S-Box
+Взят из шифра **PRESENT**:
+- A. Bogdanov, L. R. Knudsen, G. Leander, C. Paar, A. Poschmann,
+  M. J. B. Robshaw, Y. Seurin, C. Vikkelsoe.
+  «PRESENT: An Ultra-Lightweight Block Cipher».
+  In *Cryptographic Hardware and Embedded Systems – CHES 2007*,
+  LNCS vol. 4727, Springer, pp. 450–466, 2007.
+- DOI: 10.1007/978-3-540-74735-2_31
+
+### Режим PCBC (Propagating Cipher Block Chaining)
+- J. T. Kohl. «The Use of Encryption in Kerberos for Network Authentication».
+  In *Advances in Cryptology – CRYPTO '89*, LNCS vol. 435,
+  Springer, pp. 35–43, 1990.
+- DOI: 10.1007/0-387-34805-0_5
+- A. J. Menezes, P. C. van Oorschot, S. A. Vanstone.
+  *Handbook of Applied Cryptography*. CRC Press, 1997.
+- Ссылка: https://cacr.uwaterloo.ca/hac/
+- Глава 7, раздел 7.2.2 (режимы сцепления блоков).
+
+### Режим ECB (Electronic Codebook)
+- M. Dworkin. «Recommendation for Block Cipher Modes of Operation:
+  Methods and Techniques». NIST Special Publication 800-38A, 2001.
+- Ссылка: https://csrc.nist.gov/pubs/sp/800/38/a/final
+- ECB описан в разделе 6.1.
