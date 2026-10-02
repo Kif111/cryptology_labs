@@ -211,3 +211,6 @@ Dept. of Computer Science
 Davis, California, USA
 3 глава, 24 стр.
 link: https://www.cs.ucdavis.edu/~rogaway/papers/modes-cryptrec.pdf
+
+### PADDING ISO 7816-4
+- https://habr.com/ru/articles/983092/
