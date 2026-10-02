@@ -1,7 +1,7 @@
 import random
 
 # ============================================================
-# S-BOX из шифра PRESENT
+# S-BOX из шифра PRESENT (биекция!)
 # Источник: Bogdanov et al., "PRESENT: An Ultra-Lightweight Block Cipher" (2007)
 # ============================================================
 S_BOX = {
@@ -22,7 +22,6 @@ S_BOX = {
     "1110": "0001",  # E -> 1
     "1111": "0010",  # F -> 2
 }
-INV_S_BOX = {v: k for k, v in S_BOX.items()}
 INV_S_BOX = {v: k for k, v in S_BOX.items()}
 
 BLOCK_SIZE = 64
@@ -131,7 +130,7 @@ def decrypt_block(block, subkeys, verbose=False):
 
 
 # ============================================================
-# Разбиение на блоки и утилиты hex
+# Разбиение на блоки и IV
 # ============================================================
 def split_blocks(bits):
     blocks = []
@@ -141,19 +140,6 @@ def split_blocks(bits):
             b = b.ljust(BLOCK_SIZE, "0")
         blocks.append(b)
     return blocks
-
-
-def hex_to_bits(h):
-    h = h.replace(" ", "").replace("\n", "").lower()
-    if not h or any(c not in "0123456789abcdef" for c in h):
-        raise ValueError("Некорректная hex-строка.")
-    return "".join(format(int(c, 16), "04b") for c in h)
-
-
-def bits_to_hex(b):
-    if len(b) % 4 != 0:
-        b = b.ljust((len(b) // 4 + 1) * 4, "0")
-    return "".join(format(int(b[i:i + 4], 2), "x") for i in range(0, len(b), 4))
 
 
 def random_iv():
@@ -238,26 +224,24 @@ def decrypt_message(ciphertext, subkeys, mode="ECB", iv=None):
 
 
 # ============================================================
-# Ввод и меню
+# Ввод: только бинарные строки
 # ============================================================
-def input_hex_bits(prompt, min_bits, must_be_multiple_of=None):
+def input_bits(prompt, min_bits, must_be_multiple_of=None):
     while True:
         v = input(prompt).replace(" ", "").replace("\n", "")
         if not v:
             print("Ошибка: пусто.")
             continue
-        try:
-            bits = hex_to_bits(v)
-        except ValueError as e:
-            print(f"Ошибка: {e}")
+        if any(c not in "01" for c in v):
+            print("Ошибка: допускаются только 0 и 1.")
             continue
-        if len(bits) < min_bits:
-            print(f"Ошибка: нужно ≥ {min_bits} бит (сейчас {len(bits)}).")
+        if len(v) < min_bits:
+            print(f"Ошибка: нужно ≥ {min_bits} бит (сейчас {len(v)}).")
             continue
-        if must_be_multiple_of and len(bits) % must_be_multiple_of != 0:
+        if must_be_multiple_of and len(v) % must_be_multiple_of != 0:
             print(f"Ошибка: длина должна быть кратна {must_be_multiple_of} битам.")
             continue
-        return bits
+        return v
 
 
 def choose_mode():
@@ -276,7 +260,7 @@ def choose_mode():
 def main():
     while True:
         print("\n" + "=" * 60)
-        print("     SPN + PRESENT S-Box")
+        print("     SPN + PRESENT S-Box (только BIN)")
         print("=" * 60)
         print("1. Зашифровать")
         print("2. Расшифровать")
@@ -285,37 +269,30 @@ def main():
 
         if choice == "1":
             mode = choose_mode()
-            msg = input_hex_bits("Сообщение (hex, ≥ 64 символа = 256 бит):\n", 256)
-            key = input_hex_bits("Ключ (hex, ≥ 32 символа = 128 бит, кратно 16):\n", 128, 64)
+            msg = input_bits("Сообщение (BIN, ≥ 256 бит):\n", 256)
+            key = input_bits("Ключ (BIN, ≥ 128 бит, кратно 64):\n", 128, 64)
             subkeys = generate_subkeys(key)
             ct, iv = encrypt_message(msg, subkeys, mode=mode)
             print(f"\nРежим: {mode}")
             if iv:
-                print("IV (hex):", bits_to_hex(iv))
-            print("ШИФРОТЕКСТ HEX:", bits_to_hex(ct))
+                print("IV (BIN):", iv)
             print("ШИФРОТЕКСТ BIN:", ct)
             n_blocks = len(split_blocks(msg))
             print(f"Блоков: {n_blocks}, раундов на блок: {NUM_ROUNDS}, всего: {n_blocks * NUM_ROUNDS}")
 
         elif choice == "2":
             mode = choose_mode()
-            ct = input_hex_bits("Шифротекст (hex):\n", 256)
-            key = input_hex_bits("Ключ (hex, ≥ 32 символа, кратно 16):\n", 128, 64)
+            ct = input_bits("Шифротекст (BIN):\n", 256)
+            key = input_bits("Ключ (BIN, ≥ 128 бит, кратно 64):\n", 128, 64)
             subkeys = generate_subkeys(key)
             iv = None
             if mode == "PCBC":
-                iv_hex = input("IV (hex, 16 символов):\n").strip()
-                try:
-                    iv = hex_to_bits(iv_hex)
-                except ValueError as e:
-                    print(f"Ошибка IV: {e}")
-                    continue
+                iv = input_bits("IV (BIN, ровно 64 бита):\n", BLOCK_SIZE)
                 if len(iv) != BLOCK_SIZE:
-                    print("Ошибка: IV должен быть 64 бита (16 hex).")
+                    print("Ошибка: IV должен быть ровно 64 бита.")
                     continue
             pt = decrypt_message(ct, subkeys, mode=mode, iv=iv)
             print(f"\nРежим: {mode}")
-            print("РАСШИФРОВАНО HEX:", bits_to_hex(pt))
             print("РАСШИФРОВАНО BIN:", pt)
 
         elif choice == "3":
