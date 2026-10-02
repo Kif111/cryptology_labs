@@ -1,20 +1,32 @@
 import random
 
 # ============================================================
-# S-BOX из шифра PRESENT
+# S-BOX из шифра PRESENT (биекция!)
 # Источник: Bogdanov et al., "PRESENT: An Ultra-Lightweight Block Cipher" (2007)
 # ============================================================
 S_BOX = {
-    "0000": "1100", "0001": "0101", "0010": "0110", "0011": "1011",
-    "0100": "1001", "0101": "0000", "0110": "1010", "0111": "1101",
-    "1000": "0011", "1001": "1010", "1010": "0110", "1011": "1100",
-    "1100": "0101", "1101": "1001", "1110": "0000", "1111": "0111",
+    "0000": "1100",  # 0 -> C
+    "0001": "0101",  # 1 -> 5
+    "0010": "0110",  # 2 -> 6
+    "0011": "1011",  # 3 -> B
+    "0100": "1001",  # 4 -> 9
+    "0101": "0000",  # 5 -> 0
+    "0110": "1010",  # 6 -> A
+    "0111": "1101",  # 7 -> D
+    "1000": "0011",  # 8 -> 3
+    "1001": "1110",  # 9 -> E
+    "1010": "1111",  # A -> F
+    "1011": "1000",  # B -> 8
+    "1100": "0100",  # C -> 4
+    "1101": "0111",  # D -> 7
+    "1110": "0001",  # E -> 1
+    "1111": "0010",  # F -> 2
 }
 
 BLOCK_SIZE = 64
 HALF = 32
 NUM_ROUNDS = 16
-NIBBLE = 4   # 1 hex-символ = 4 бита
+NIBBLE = 4
 
 
 # ============================================================
@@ -117,46 +129,38 @@ def feistel_decrypt_block(block, subkeys, verbose=False):
 
 # ============================================================
 # Паддинг ANSI X.923 (на нибблах)
-# Схема: [данные][нули][последний ниббл = число добавленных]
-# Последний ниббл всегда от 1 до 16 (16 кодируется как 0).
 # ============================================================
 def pad_message(bits):
-    # Дополняем до кратности NIBBLE, чтобы паддинг работал по нибблам
     rem_nibble = len(bits) % NIBBLE
     if rem_nibble != 0:
         bits = bits.ljust(len(bits) + (NIBBLE - rem_nibble), "0")
 
-    # Сколько нибблов нужно добавить, чтобы (текущее + паддинг) было кратно 16 нибблам (64 битам)
     total_nibbles = len(bits) // NIBBLE
     pad_nibbles = (16 - (total_nibbles % 16)) % 16
     if pad_nibbles == 0:
-        pad_nibbles = 16   # если уже кратно — добавляем целый блок
+        pad_nibbles = 16
 
-    # pad_nibbles нулей, затем последний ниббл = число добавленных
     zero_nibbles = pad_nibbles - 1
-    # 16 кодируется как 0 (стандарт ANSI X.923 для нибблов)
-    count_nibble = pad_nibbles % 16
+    count_nibble = pad_nibbles % 16   # 16 кодируется как 0
     padded = bits + ("0" * (zero_nibbles * NIBBLE)) + format(count_nibble, "04b")
     return padded
 
 
 def unpad_message(bits):
-    # Последний ниббл — число добавленных нибблов
     last_nibble = int(bits[-NIBBLE:], 2)
     if last_nibble == 0:
         last_nibble = 16
     if last_nibble > len(bits) // NIBBLE:
         raise ValueError("Некорректный паддинг ANSI X.923.")
-    # Проверяем, что все добавленные нибблы (кроме последнего) = 0
     padding_start = len(bits) - last_nibble * NIBBLE
     middle = bits[padding_start:-NIBBLE]
     if any(c != "0" for c in middle):
-        raise ValueError("Некорректный паддинг ANSI X.923 (ненулевые байты).")
+        raise ValueError("Некорректный паддинг ANSI X.923 (ненулевые нибблы).")
     return bits[:padding_start]
 
 
 # ============================================================
-# Утилиты
+# Разбиение на блоки и IV
 # ============================================================
 def split_blocks(bits):
     blocks = []
@@ -166,19 +170,6 @@ def split_blocks(bits):
             b = b.ljust(BLOCK_SIZE, "0")
         blocks.append(b)
     return blocks
-
-
-def hex_to_bits(h):
-    h = h.replace(" ", "").replace("\n", "").lower()
-    if not h or any(c not in "0123456789abcdef" for c in h):
-        raise ValueError("Некорректная hex-строка.")
-    return "".join(format(int(c, 16), "04b") for c in h)
-
-
-def bits_to_hex(b):
-    if len(b) % 4 != 0:
-        b = b.ljust((len(b) // 4 + 1) * 4, "0")
-    return "".join(format(int(b[i:i + 4], 2), "x") for i in range(0, len(b), 4))
 
 
 def random_iv():
@@ -204,8 +195,6 @@ def ecb_decrypt(ciphertext, subkeys):
 
 # ============================================================
 # Режим CBC
-# Шифрование:  C[i] = E(P[i] XOR C[i-1]), C[-1] = IV
-# Расшифрование: P[i] = D(C[i]) XOR C[i-1]
 # ============================================================
 def cbc_encrypt(message, subkeys, iv):
     blocks = split_blocks(message)
@@ -258,26 +247,24 @@ def decrypt_message(ciphertext, subkeys, mode="ECB", iv=None):
 
 
 # ============================================================
-# Ввод и меню
+# Ввод: только бинарные строки
 # ============================================================
-def input_hex_bits(prompt, min_bits, must_be_multiple_of=None):
+def input_bits(prompt, min_bits, must_be_multiple_of=None):
     while True:
         v = input(prompt).replace(" ", "").replace("\n", "")
         if not v:
             print("Ошибка: пусто.")
             continue
-        try:
-            bits = hex_to_bits(v)
-        except ValueError as e:
-            print(f"Ошибка: {e}")
+        if any(c not in "01" for c in v):
+            print("Ошибка: допускаются только 0 и 1.")
             continue
-        if len(bits) < min_bits:
-            print(f"Ошибка: нужно ≥ {min_bits} бит (сейчас {len(bits)}).")
+        if len(v) < min_bits:
+            print(f"Ошибка: нужно ≥ {min_bits} бит (сейчас {len(v)}).")
             continue
-        if must_be_multiple_of and len(bits) % must_be_multiple_of != 0:
+        if must_be_multiple_of and len(v) % must_be_multiple_of != 0:
             print(f"Ошибка: длина должна быть кратна {must_be_multiple_of} битам.")
             continue
-        return bits
+        return v
 
 
 def choose_mode():
@@ -296,7 +283,7 @@ def choose_mode():
 def main():
     while True:
         print("\n" + "=" * 60)
-        print("     Фейстель + PRESENT S-Box")
+        print("     Фейстель + PRESENT S-Box (только BIN)")
         print("=" * 60)
         print("1. Зашифровать")
         print("2. Расшифровать")
@@ -305,37 +292,30 @@ def main():
 
         if choice == "1":
             mode = choose_mode()
-            msg = input_hex_bits("Сообщение (hex, ≥ 64 символа = 256 бит):\n", 256)
-            key = input_hex_bits("Ключ (hex, ≥ 32 символа = 128 бит, кратно 16):\n", 128, 64)
+            msg = input_bits("Сообщение (BIN, ≥ 256 бит):\n", 256)
+            key = input_bits("Ключ (BIN, ≥ 128 бит, кратно 64):\n", 128, 64)
             subkeys = generate_subkeys(key)
             ct, iv = encrypt_message(msg, subkeys, mode=mode)
             print(f"\nРежим: {mode}")
             if iv:
-                print("IV (hex):", bits_to_hex(iv))
-            print("ШИФРОТЕКСТ HEX:", bits_to_hex(ct))
+                print("IV (BIN):", iv)
             print("ШИФРОТЕКСТ BIN:", ct)
             n_blocks = len(split_blocks(pad_message(msg)))
             print(f"Блоков: {n_blocks}, раундов на блок: {NUM_ROUNDS}, всего: {n_blocks * NUM_ROUNDS}")
 
         elif choice == "2":
             mode = choose_mode()
-            ct = input_hex_bits("Шифротекст (hex):\n", 256)
-            key = input_hex_bits("Ключ (hex, ≥ 32 символа, кратно 16):\n", 128, 64)
+            ct = input_bits("Шифротекст (BIN):\n", 256)
+            key = input_bits("Ключ (BIN, ≥ 128 бит, кратно 64):\n", 128, 64)
             subkeys = generate_subkeys(key)
             iv = None
             if mode == "CBC":
-                iv_hex = input("IV (hex, 16 символов):\n").strip()
-                try:
-                    iv = hex_to_bits(iv_hex)
-                except ValueError as e:
-                    print(f"Ошибка IV: {e}")
-                    continue
+                iv = input_bits("IV (BIN, ровно 64 бита):\n", BLOCK_SIZE)
                 if len(iv) != BLOCK_SIZE:
-                    print("Ошибка: IV должен быть 64 бита (16 hex).")
+                    print("Ошибка: IV должен быть ровно 64 бита.")
                     continue
             pt = decrypt_message(ct, subkeys, mode=mode, iv=iv)
             print(f"\nРежим: {mode}")
-            print("РАСШИФРОВАНО HEX:", bits_to_hex(pt))
             print("РАСШИФРОВАНО BIN:", pt)
 
         elif choice == "3":
